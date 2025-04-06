@@ -31,7 +31,7 @@ CURRENT_REPLICAS=$(gcloud compute instance-groups managed list-instances "$GROUP
 echo ">>> Currently running instances: $CURRENT_REPLICAS"
 
 if [[ $CURRENT_REPLICAS -le $EXPECTED_MIN ]]; then
-  echo "✅ Scaling has returned to baseline ($CURRENT_REPLICAS instance(s))"
+  echo " Scaling has returned to baseline ($CURRENT_REPLICAS instance(s))"
 else
-  echo "⚠️  More than expected baseline VMs running: $CURRENT_REPLICAS instance(s)"
+  echo "  More than expected baseline VMs running: $CURRENT_REPLICAS instance(s)"
 fi
