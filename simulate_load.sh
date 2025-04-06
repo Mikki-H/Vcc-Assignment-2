@@ -1,6 +1,3 @@
-#!/bin/bash
-# simulate_load.sh — GCP Auto-Scaling Load Test Script
-# Usage: ./simulate_load.sh <INSTANCE_GROUP_NAME> <ZONE> <BASE_INSTANCE_COUNT> <DURATION_IN_SECONDS>
 
 set -euo pipefail
 
