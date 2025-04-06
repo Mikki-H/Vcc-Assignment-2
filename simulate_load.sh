@@ -1,45 +1,48 @@
+#!/bin/bash
+# simulate_load.sh
+# Usage: ./simulate_load.sh <INSTANCE_GROUP_NAME> <ZONE> <MIN_INSTANCES> <STRESS_DURATION>
 
 set -euo pipefail
 
-GROUP_ID=$1
+# Input arguments
+GROUP_NAME=$1
 ZONE=$2
-EXPECTED_MIN=$3
+MIN_REPLICAS=$3
 DURATION=$4
 
-echo "[+] Validating system environment..."
+echo ">>> Checking prerequisites..."
 
-
-if sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
-  echo "[!] dpkg is locked. Attempting to fix..."
-  sudo dpkg --configure -a
-fi
-
+# Install stress-ng if not available
 if ! command -v stress-ng >/dev/null; then
-  echo "[+] Installing stress-ng tool..."
+  echo ">>> Installing stress-ng for CPU load generation..."
   sudo apt-get update && sudo apt-get install -y stress-ng
 fi
 
+# Detect total CPU cores
+CPU_CORES=$(nproc)
+echo ">>> CPU Cores available: $CPU_CORES"
+echo ">>> Starting stress test for $DURATION seconds..."
 
-CORES=$(nproc)
-echo "[+] Detected $CORES CPU core(s)"
-echo "[+] Simulating load for ${DURATION} seconds..."
+# Launch CPU stress test
+stress-ng --cpu "$CPU_CORES" --timeout "${DURATION}"
 
+echo ">>> Load test completed. Monitoring auto-scaling..."
 
-stress-ng --cpu "$CORES" --timeout "${DURATION}"s
+# Wait a bit for auto-scaler to respond
+WAIT_TIME=20
+echo ">>> Waiting ${WAIT_TIME}s for scaling to react..."
+sleep "$WAIT_TIME"
 
-echo "[+] Load test completed. Waiting 70 seconds for scaling to respond..."
-sleep 70
-
-
+# Track scale-down over time
 ATTEMPTS=0
-MAX_ATTEMPTS=10
+MAX_RETRIES=10
 
-while [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
-  CURRENT_REPLICAS=$(gcloud compute instance-groups managed list-instances "$GROUP_ID" --zone "$ZONE" --format="value(instance)" | wc -l)
-  echo "[+] Current replicas: $CURRENT_REPLICAS"
+while [ "$ATTEMPTS" -lt "$MAX_RETRIES" ]; do
+  ACTIVE_INSTANCES=$(gcloud compute instance-groups managed list-instances "$GROUP_NAME" --zone "$ZONE" --format="value(instance)" | wc -l)
+  echo ">>> Current instance count: $ACTIVE_INSTANCES"
 
-  if [[ "$CURRENT_REPLICAS" -le "$EXPECTED_MIN" ]]; then
-    echo "[✓] Instance group returned to baseline ($EXPECTED_MIN replica(s))"
+  if [ "$ACTIVE_INSTANCES" -le "$MIN_REPLICAS" ]; then
+    echo ">>> ✅ Scaled down successfully to baseline: $MIN_REPLICAS instance(s)."
     exit 0
   fi
 
@@ -47,5 +50,5 @@ while [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
   ((ATTEMPTS++))
 done
 
-echo "[✗] Timeout: Scaling did not revert within expected duration."
+echo ">>> ❌ Timeout: Instance group did not scale down within expected timeframe."
 exit 1
