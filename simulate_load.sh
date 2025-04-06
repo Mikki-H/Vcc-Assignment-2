@@ -10,30 +10,29 @@ DURATION=$4
 
 echo "[+] Validating system environment..."
 
-# Handle dpkg lock issue (e.g., 'dpkg was interrupted')
+
 if sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
   echo "[!] dpkg is locked. Attempting to fix..."
   sudo dpkg --configure -a
 fi
 
-# Check and install stress-ng if missing
 if ! command -v stress-ng >/dev/null; then
   echo "[+] Installing stress-ng tool..."
   sudo apt-get update && sudo apt-get install -y stress-ng
 fi
 
-# Detect available CPU cores
+
 CORES=$(nproc)
 echo "[+] Detected $CORES CPU core(s)"
 echo "[+] Simulating load for ${DURATION} seconds..."
 
-# Run CPU stress test
+
 stress-ng --cpu "$CORES" --timeout "${DURATION}"s
 
 echo "[+] Load test completed. Waiting 70 seconds for scaling to respond..."
 sleep 70
 
-# Check instance group for scale down
+
 ATTEMPTS=0
 MAX_ATTEMPTS=10
 
