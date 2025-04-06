@@ -1,55 +1,54 @@
 #!/bin/bash
-# Custom CPU stress tester and MIG monitor
+# Usage: ./simulate_load.sh <GROUP_ID> <ZONE> <TARGET_COUNT> <RUN_TIME_SEC>
 
 set -euo pipefail
 
-if [ "$#" -ne 4 ]; then
-  echo "Usage: $0 <MIG_NAME> <ZONE> <MIN_INSTANCES> <DURATION_IN_SEC>"
-  exit 1
-fi
-
 GROUP_ID=$1
 ZONE=$2
-MIN_COUNT=$3
+EXPECTED_MIN=$3
 DURATION=$4
 
-echo "[START] Verifying prerequisites..."
+echo "[+] Validating system environment..."
 
+# Handle dpkg lock issue (e.g., 'dpkg was interrupted')
+if sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+  echo "[!] dpkg is locked. Attempting to fix..."
+  sudo dpkg --configure -a
+fi
+
+# Check and install stress-ng if missing
 if ! command -v stress-ng >/dev/null; then
-  echo "[INFO] Installing stress-ng..."
-  sudo apt update && sudo apt install -y stress-ng
+  echo "[+] Installing stress-ng tool..."
+  sudo apt-get update && sudo apt-get install -y stress-ng
 fi
 
-if ! command -v gcloud >/dev/null; then
-  echo "[ERROR] gcloud CLI is missing. Exiting."
-  exit 1
-fi
+# Detect available CPU cores
+CORES=$(nproc)
+echo "[+] Detected $CORES CPU core(s)"
+echo "[+] Simulating load for ${DURATION} seconds..."
 
-CPU_CORES=$(nproc)
-echo "[INFO] Detected $CPU_CORES cores. Running CPU load for $DURATION seconds..."
-stress-ng --cpu "$CPU_CORES" --timeout "${DURATION}s"
+# Run CPU stress test
+stress-ng --cpu "$CORES" --timeout "${DURATION}"s
 
-echo "[INFO] Load finished. Waiting for scaling activity..."
-sleep 60
+echo "[+] Load test completed. Waiting 70 seconds for scaling to respond..."
+sleep 70
 
-MAX_WAIT=600
-INTERVAL=30
-TIME_PASSED=0
+# Check instance group for scale down
+ATTEMPTS=0
+MAX_ATTEMPTS=10
 
-while [ "$TIME_PASSED" -lt "$MAX_WAIT" ]; do
-  CURRENT_REPLICAS=$(gcloud compute instance-groups managed list-instances "$GROUP_ID" \
-    --zone "$ZONE" --format="value(instance)" | wc -l)
+while [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
+  CURRENT_REPLICAS=$(gcloud compute instance-groups managed list-instances "$GROUP_ID" --zone "$ZONE" --format="value(instance)" | wc -l)
+  echo "[+] Current replicas: $CURRENT_REPLICAS"
 
-  echo "[STATUS] Current replica count: $CURRENT_REPLICAS"
-
-  if [[ "$CURRENT_REPLICAS" -le "$MIN_COUNT" ]]; then
-    echo "[SUCCESS] Group has returned to minimum ($MIN_COUNT) instances."
+  if [[ "$CURRENT_REPLICAS" -le "$EXPECTED_MIN" ]]; then
+    echo "[✓] Instance group returned to baseline ($EXPECTED_MIN replica(s))"
     exit 0
   fi
 
-  sleep "$INTERVAL"
-  TIME_PASSED=$((TIME_PASSED + INTERVAL))
+  sleep 30
+  ((ATTEMPTS++))
 done
 
-echo "[TIMEOUT] Auto-scaler did not scale down in expected time."
+echo "[✗] Timeout: Scaling did not revert within expected duration."
 exit 1
