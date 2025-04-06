@@ -1,5 +1,3 @@
-#!/bin/bash
-# Usage: ./simulate_load.sh <GROUP_ID> <ZONE> <TARGET_COUNT> <RUN_TIME_SEC>
 
 set -euo pipefail
 
