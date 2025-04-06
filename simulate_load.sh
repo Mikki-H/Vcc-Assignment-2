@@ -1,6 +1,5 @@
 #!/bin/bash
-# simulate_load.sh
-# Usage: ./simulate_load.sh <INSTANCE_GROUP_NAME> <ZONE> <MIN_INSTANCES> <STRESS_DURATION>
+
 
 set -euo pipefail
 
