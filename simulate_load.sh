@@ -1,53 +1,54 @@
 #!/bin/bash
-
+# simulate_load.sh — GCP Auto-Scaling Load Test Script
+# Usage: ./simulate_load.sh <INSTANCE_GROUP_NAME> <ZONE> <BASE_INSTANCE_COUNT> <DURATION_IN_SECONDS>
 
 set -euo pipefail
 
-# Input arguments
 GROUP_NAME=$1
 ZONE=$2
-MIN_REPLICAS=$3
+BASE_COUNT=$3
 DURATION=$4
 
 echo ">>> Checking prerequisites..."
 
-# Install stress-ng if not available
-if ! command -v stress-ng >/dev/null; then
+# Ensure dpkg issues are cleared
+sudo dpkg --configure -a
+
+
+if ! command -v stress-ng &> /dev/null; then
   echo ">>> Installing stress-ng for CPU load generation..."
-  sudo apt-get update && sudo apt-get install -y stress-ng
+  sudo apt update
+  sudo apt install -y stress-ng
 fi
 
-# Detect total CPU cores
-CPU_CORES=$(nproc)
-echo ">>> CPU Cores available: $CPU_CORES"
-echo ">>> Starting stress test for $DURATION seconds..."
+CORES=$(nproc)
+echo ">>> CPU Cores available: $CORES"
+echo ">>> Starting stress test for ${DURATION} seconds..."
 
-# Launch CPU stress test
-stress-ng --cpu "$CPU_CORES" --timeout "${DURATION}"
+# Run CPU load
+stress-ng --cpu "$CORES" --timeout "${DURATION}"s
 
 echo ">>> Load test completed. Monitoring auto-scaling..."
+echo ">>> Waiting 20s for scaling to react..."
+sleep 20
 
-# Wait a bit for auto-scaler to respond
-WAIT_TIME=20
-echo ">>> Waiting ${WAIT_TIME}s for scaling to react..."
-sleep "$WAIT_TIME"
+MAX_CHECKS=10
+TRIES=0
 
-# Track scale-down over time
-ATTEMPTS=0
-MAX_RETRIES=10
+while [ $TRIES -lt $MAX_CHECKS ]; do
+  echo ">>> Checking current VM count in instance group..."
+  CURRENT_COUNT=$(gcloud compute instance-groups managed list-instances "$GROUP_NAME" --zone "$ZONE" --format="value(instance)" | wc -l)
 
-while [ "$ATTEMPTS" -lt "$MAX_RETRIES" ]; do
-  ACTIVE_INSTANCES=$(gcloud compute instance-groups managed list-instances "$GROUP_NAME" --zone "$ZONE" --format="value(instance)" | wc -l)
-  echo ">>> Current instance count: $ACTIVE_INSTANCES"
+  echo ">>> Currently running instances: $CURRENT_COUNT"
 
-  if [ "$ACTIVE_INSTANCES" -le "$MIN_REPLICAS" ]; then
-    echo ">>> ✅ Scaled down successfully to baseline: $MIN_REPLICAS instance(s)."
+  if [ "$CURRENT_COUNT" -le "$BASE_COUNT" ]; then
+    echo "✅ Scaling has returned to baseline (${BASE_COUNT} instance(s))"
     exit 0
   fi
 
   sleep 30
-  ((ATTEMPTS++))
+  ((TRIES++))
 done
 
-echo ">>> ❌ Timeout: Instance group did not scale down within expected timeframe."
+echo "❌ Auto-scaling did not revert within the expected time."
 exit 1
